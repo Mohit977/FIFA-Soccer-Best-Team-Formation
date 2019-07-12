@@ -1,0 +1,397 @@
+
+# Installing and intializing the necessary libraries
+install.packages("car")
+library(MASS)
+library(car)
+
+#Loading CompleteDataset
+data1 <- read.csv("C:/Users/Dell-pc/Desktop/Github/Projects/FIFA Soccer Best Team Formation/CompleteDataset.csv")
+head(data1)
+str(data1)
+View(data1)
+colnames(data1)
+
+# Data Cleaning
+
+#Coverting factor variables
+factor(data1$Nationality)
+a <- table(data1$Nationality)
+
+triala = as.data.frame(a)
+#View(triala)
+sort(triala$Freq, decreasing=TRUE)
+triala$freq_percent = (triala$Freq / sum(triala$Freq))*100
+triala$dummy  <- as.numeric(triala$freq_percent >=5)
+
+
+for (i in 1:nrow(triala)){ 
+  if(triala$dummy == 0) triala$dummy2[i]=c("other") 
+  else 
+    triala$dummy2[i] == triala$Var1[i]
+} 
+
+#Removing all the unnecessary variables from the dataset
+data2 <- subset(data1, select = -c(Name, Photo, Flag, Club.Logo, Value, Wage, Preferred.Positions,Nationality,Club))
+str(data2)
+#View(data2)
+
+# Convert factor variables to integer
+typeconversion <- function(columnname) {as.integer(levels(columnname))[columnname]}
+df1 <- lapply(data2[c(6:39)], FUN = typeconversion)
+#View(df1)
+str(df1)
+
+#Convert list to dataframe
+df2 <- as.data.frame(df1)
+df2 <- cbind(data2[c(1:5,40:66)], df2)
+#View(df2)
+str(df2)
+
+#Here, we filled all the blanks with NA and omitted all the NA's from the data
+df2[df2 == ""] <- NA
+df2 <- na.omit(df2)
+
+#Divide the data into train and test data
+set.seed(1) 
+row.number <- sample(x=1:nrow(df2), size=0.7*nrow(df2))
+train = df2[row.number,]
+test = df2[-row.number,]
+head(train)
+head(test)
+
+##Optimization
+
+#PCA 
+#prepare data for pca
+pca.data <- subset(df2, select = -c(3))
+df2.pca <- prcomp(pca.data, retx = TRUE, center = TRUE, scale. = TRUE)
+summary(df2.pca)
+#df2.pca$x
+
+pcamodeldata <- as.data.frame(cbind(df2$Overall,(df2.pca$x)))
+row.number <- sample(x=1:nrow(pcamodeldata), size=0.7*nrow(pcamodeldata))
+pcatrain = pcamodeldata[row.number,]
+pcatest = pcamodeldata[-row.number,]
+head(pcatrain)
+head(pcatest)
+
+##Linear Regression on PCA Components
+pcamodel <- lm(formula = V1~., data = pcatrain)
+summary(pcamodel)
+
+##Model Validation - VIF
+vif(pcamodel)
+
+##Linear pca model with "stepAIC"
+steppca <- step(pcamodel, direction="backward")
+steppca$anova # display results
+summary(steppca)
+vif(steppca)
+
+pcatestmodel <- predict(steppca, newdata = pcatest)
+summary(pcatestmodel)
+
+observedval <- pcatest$V1
+
+# Observing Errors 
+
+SSE <- sum((observedval - pcatestmodel) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((pcatestmodel - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((pcatestmodel - observedval)^2)/length(observedval))
+mse
+
+max(pcatestmodel - observedval)
+min(pcatestmodel - observedval)
+
+##Base Model1
+##Linear Regression on the whole dataset
+ #View(train)
+
+#modeldata <- subset(train, select = -c(6:10,12:33))
+#View(modeldata)
+
+model1 <- lm(formula = Overall ~ ., data = train)
+summary(model1)
+
+##Model Validation - VIF
+vif(model1)
+alias(lm(formula = Overall ~ ., data = train))           
+
+
+#Fit the model to test dataset
+testmodel <- predict(model1, newdata = test)
+summary(testmodel)
+
+observedval <- test$Overall
+
+#Compute the error values
+SSE <- sum((observedval - testmodel) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel - observedval)^2)/length(observedval))
+mse
+
+##Model Comparison (Selection Method - AIC)
+#Applying AIC method on model1
+step1 <- stepAIC(model1, direction = "both")
+step1$anova 
+
+model1aic <- lm(formula = Overall ~ X + Age + Potential + CM + ID + LB + LM + LS + Acceleration + 
+                  Aggression + Balance + Ball.control + Composure + Crossing + 
+                  Finishing + GK.positioning + Long.shots + Positioning + Reactions + 
+                  Short.passing + Shot.power + Sliding.tackle + Stamina + Standing.tackle + 
+                  Strength, data = train)
+summary(model1aic)
+
+##Model Validation - VIF
+vif(model1aic)
+
+#Fit the model to test aic dataset
+testmodel1aic <- predict(model1aic, newdata = test)
+summary(testmodel1aic)
+
+observedval <- test$Overall
+
+#Compute the error values
+SSE <- sum((observedval - testmodel1aic) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel1aic - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel1aic - observedval)^2)/length(observedval))
+mse
+
+max(testmodel1aic - observedval)
+min(testmodel1aic - observedval)
+
+##Base Model2
+##Linear model after removing insignificant variables
+model2 <- lm(formula = Overall ~ X + Age + Potential + CM + LB + LS + Acceleration
+             + Balance + Ball.control + Composure + Reactions + Short.passing + Sliding.tackle+
+               Stamina + Strength, data = train)
+summary(model2)
+
+testmodel2 <- predict(model2, newdata = test)
+summary(testmodel2)
+
+##Model Validation - VIF
+vif(model2)
+
+observedval <- test$Overall
+
+SSE <- sum((observedval - testmodel2) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel2 - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel2 - observedval)^2)/length(observedval))
+mse
+
+max(testmodel2 - observedval)
+min(testmodel2 - observedval)
+
+##Model Comparison (Selection Method - AIC)
+#Applying AIC method on model2
+step2 <- stepAIC(model2, direction = "both")
+step2$anova 
+
+model2aic <- lm(formula = Overall ~ X + Age + Potential + CM + LB + LS + Acceleration + 
+                  Balance + Ball.control + Composure + Reactions + Short.passing + 
+                  Sliding.tackle + Stamina + Strength, data = train)
+summary(model2aic)
+
+#Fit the model to test aic dataset
+testmodel2aic <- predict(model2aic, newdata = test)
+summary(testmodel2aic)
+
+observedval <- test$Overall
+
+#Compute the error values
+SSE <- sum((observedval - testmodel2aic) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel2aic - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel2aic - observedval)^2)/length(observedval))
+mse
+
+max(testmodel2aic - observedval)
+min(testmodel2aic - observedval)
+
+##Base Model3
+##Linear model after including only skills and not position data
+ #View(train)
+modeldata1 <- subset(train, select = -c(1:2,4:33))
+ #View(modeldata1)
+model3 <- lm(formula = Overall ~ ., data = modeldata1)
+summary(model3)
+
+testmodel3 <- predict(model3, newdata = test)
+summary(testmodel3)
+
+##Model Validation - VIF
+vif(model3)
+observedval <- test$Overall
+
+SSE <- sum((observedval - testmodel3) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel3 - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel3 - observedval)^2)/length(observedval))
+mse
+
+ #View(testmodel3 - observedval)
+max(testmodel3 - observedval)
+min(testmodel3 - observedval)
+
+##Model Comparison (Selection Method - AIC)  
+#Applying AIC Method on model3
+step3 <- stepAIC(model3, direction = "both")
+step3$anova 
+
+model3aic <- lm(formula = Overall ~ Balance + Ball.control + Composure + Crossing + Curve + 
+                  Dribbling + Finishing + Free.kick.accuracy + Heading.accuracy + 
+                  Interceptions + Jumping + Long.passing + Long.shots + Marking + 
+                  Penalties + Positioning + Reactions + Short.passing + Shot.power + 
+                  Sliding.tackle + Sprint.speed + Stamina + Standing.tackle + 
+                  Strength + Vision, data = train)
+summary(model3aic)
+
+#Fit the model to test aic dataset
+testmodel3aic <- predict(model3aic, newdata = test)
+summary(testmodel3aic)
+
+##Model Validation - VIF
+vif(model3aic)
+
+observedval <- test$Overall
+
+#Compute the error values
+SSE <- sum((observedval - testmodel3aic) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel3aic - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel3aic - observedval)^2)/length(observedval))
+mse
+
+max(testmodel3aic - observedval)
+min(testmodel3aic - observedval)
+
+##Base Model4
+##Linear model after including only skills and not position data
+ #View(train)
+
+modeldata1 <- subset(train, select = -c(1:2,4:33))
+ #View(modeldata1)
+model4 <- lm(formula = Overall ~ Balance + Ball.control + Composure + Crossing + Curve + Finishing +
+               + Free.kick.accuracy + Heading.accuracy + Interceptions + Jumping + Long.passing
+             + Long.shots + Penalties + Positioning + Reactions + Short.passing + Sliding.tackle
+             + Shot.power + Stamina + Standing.tackle + Strength + Stamina + Sprint.speed + Vision, data = modeldata1)
+summary(model4)
+
+testmodel4 <- predict(model4, newdata = test)
+summary(testmodel4)
+
+##Model Validation - VIF
+vif(model4)
+
+observedval <- test$Overall
+
+SSE4 <- sum((observedval - testmodel4) ^ 2)
+SST4 <- sum((observedval - mean(observedval)) ^ 2)
+r24 <- 1 - SSE4/SST4
+r24
+
+#RMSE:
+rmse4 <- sqrt(sum((testmodel4 - observedval)^2)/length(observedval))
+rmse4
+
+#MSE
+mse4 <- (sum((testmodel4 - observedval)^2)/length(observedval))
+mse4
+
+ #View(testmodel4 - observedval)
+max(testmodel4 - observedval)
+min(testmodel4 - observedval)
+
+##Model Comparison (Selection Method - AIC)
+#Applying AIC Method on model4
+step4 <- stepAIC(model4, direction = "both")
+step4$anova 
+
+model4aic <- lm(formula = Overall ~ Balance + Ball.control + Composure + Crossing + Curve + 
+                  Finishing + +Free.kick.accuracy + Heading.accuracy + Interceptions + 
+                  Jumping + Long.passing + Long.shots + Penalties + Positioning + 
+                  Reactions + Short.passing + Sliding.tackle + Shot.power + 
+                  Stamina + Standing.tackle + Strength + Stamina + Sprint.speed + 
+                  Vision, data = train)
+summary(model4aic)
+
+#Fit the model to test aic dataset
+testmodel4aic <- predict(model4aic, newdata = test)
+summary(testmodel4aic)
+
+##Model Validation - VIF
+vif(model4aic)
+
+observedval <- test$Overall
+
+#Compute the error values
+SSE <- sum((observedval - testmodel4aic) ^ 2)
+SST <- sum((observedval - mean(observedval)) ^ 2)
+r2 <- 1 - SSE/SST
+r2
+
+#RMSE:
+rmse <- sqrt(sum((testmodel4aic - observedval)^2)/length(observedval))
+rmse
+
+#MSE
+mse <- (sum((testmodel4aic - observedval)^2)/length(observedval))
+mse
+
+max(testmodel4aic - observedval)
+min(testmodel4aic - observedval)
+
